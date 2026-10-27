@@ -146,3 +146,4 @@ fluxx-api/
 - Do not paste credentials into screenshots, chat, or public issues.
 - Only connect to APIs whose usage and data handling you understand.
 - Review provider rate limits, privacy requirements, and terms before enabling endpoints.
+# fluxint_tools
