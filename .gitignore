@@ -1,0 +1,29 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+config/config.local.json
+session.key
+*.session
+*.token
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Runtime output
+output/
+*.log
+.installation_id
+
+# Compiled Python files
+*.pyc
+
+# Local backups
+*.backup
+
+# Private endpoint configuration
+config/endpoints.json
