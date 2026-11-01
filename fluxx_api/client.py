@@ -19,7 +19,6 @@ def _safe_url(url):
     return url
 
 
-
 def _replace_templates(value, variables):
     if isinstance(value, str):
         for key, replacement in variables.items():
@@ -42,6 +41,7 @@ def _replace_templates(value, variables):
         }
 
     return value
+
 
 def request_api(endpoint, query, settings, extra_variables=None):
     if not endpoint.get("enabled", False):
@@ -79,27 +79,43 @@ def request_api(endpoint, query, settings, extra_variables=None):
         "User-Agent": "FluxxAPI/0.1",
     }
 
-
     # Optional authentication conventions. Adjust to match your provider.
     auth_mode = endpoint.get("auth", "none")
+    secret = ""  # nilai rahasia yang tampil di URL; disamarkan di pesan error
+
     if auth_mode == "api_key":
         key_name = endpoint.get("api_key_setting", "api_key")
         key = settings.get(key_name, "")
         if not key:
             raise APIClientError("FLUXX_API_KEY belum diisi pada file .env.")
         headers[str(endpoint.get("auth_header", "X-API-Key"))] = key
+
     elif auth_mode == "bearer":
         token = settings["api_token"]
         if not token:
             raise APIClientError("FLUXX_API_TOKEN belum diisi pada file .env.")
         headers["Authorization"] = f"Bearer {token}"
+
     elif auth_mode == "session":
         key = settings["session_key"]
         if not key:
             raise APIClientError("FLUXX_SESSION_KEY belum diisi pada file .env.")
         headers[str(endpoint.get("auth_header", "X-Session-Key"))] = key
+
+    elif auth_mode == "api_key_param":
+        key_name = endpoint.get("api_key_setting", "api_key")
+        # Ambil dari settings; kalau belum dipetakan config.py, baca dari .env.
+        key = settings.get(key_name, "") or os.getenv(key_name.upper(), "")
+        if not key:
+            raise APIClientError(f"Key '{key_name}' belum diisi pada file .env.")
+        params[str(endpoint.get("auth_param", "access_key"))] = key
+        secret = key
+
     elif auth_mode != "none":
-        raise APIClientError("Mode auth tidak dikenal. Gunakan none, api_key, bearer, atau session.")
+        raise APIClientError(
+            "Mode auth tidak dikenal. Gunakan none, api_key, "
+            "api_key_param, bearer, atau session."
+        )
 
     try:
         with requests.Session() as session:
@@ -113,25 +129,39 @@ def request_api(endpoint, query, settings, extra_variables=None):
                 allow_redirects=False,
                 stream=True,
             )
+
             if 300 <= response.status_code < 400:
                 response.close()
-                raise APIClientError("Redirect ditolak untuk keamanan. Periksa URL endpoint.")
+                raise APIClientError(
+                    "Redirect ditolak untuk keamanan. Periksa URL endpoint."
+                )
+
             response.raise_for_status()
+
             chunks, size = [], 0
             for chunk in response.iter_content(chunk_size=16384):
                 size += len(chunk)
                 if size > settings["max_response_bytes"]:
                     response.close()
-                    raise APIClientError("Respons melebihi batas ukuran yang diizinkan.")
+                    raise APIClientError(
+                        "Respons melebihi batas ukuran yang diizinkan."
+                    )
                 chunks.append(chunk)
+
             raw = b"".join(chunks)
             content_type = response.headers.get("Content-Type", "")
             status_code = response.status_code
             response.close()
-    except requests.Timeout as exc:
-        raise APIClientError("Request timeout. Coba lagi atau naikkan FLUXX_TIMEOUT.") from exc
+
+    except requests.Timeout:
+        raise APIClientError(
+            "Request timeout. Coba lagi atau naikkan FLUXX_TIMEOUT."
+        ) from None
     except requests.RequestException as exc:
-        raise APIClientError(f"Request API gagal: {exc}") from exc
+        message = str(exc)
+        if secret:
+            message = message.replace(secret, "***")
+        raise APIClientError(f"Request API gagal: {message}") from None
 
     text = raw.decode("utf-8", errors="replace")
     try:

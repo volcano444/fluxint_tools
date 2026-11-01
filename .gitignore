@@ -27,3 +27,9 @@ output/
 
 # Private endpoint configuration
 config/endpoints.json
+
+# Local configuration backups
+*.bak
+*.backup.*
+config/__pycache__/
+>

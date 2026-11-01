@@ -29,4 +29,6 @@ def load_settings():
         "session_key": os.getenv("FLUXX_SESSION_KEY", "").strip(),
         "npsn_api_key": os.getenv("FLUXX_NPSN_API_KEY", "").strip(),
         "contact_api_key": os.getenv("FLUXX_CONTACT_API_KEY", "").strip(),
+        "locate_api_key": os.getenv("FLUXX_LOCATE_API_KEY", "").strip(),
+        "airport_api_key": os.getenv("FLUXX_AIRPORT_API_KEY", "").strip(),
     }

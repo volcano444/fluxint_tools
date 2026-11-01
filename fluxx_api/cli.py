@@ -1,5 +1,6 @@
 import os
 import platform
+import re
 import socket
 import uuid
 from pathlib import Path
@@ -21,7 +22,7 @@ from .telegram_reporter import send_report
 console = Console()
 
 MENU = [
-    ("1", "url_mirroring"),
+    ("1", "ai_chat"),
     ("2", "weather"),
     ("3", "earthquake_bmkg"),
     ("4", "nik_detail"),
@@ -38,8 +39,26 @@ MENU = [
     ("15", "find_ml"),
     ("16", "find_roblox"),
     ("17", "react_saluran"),
+    ("18", "find_idol"),
+    ("19", "find_nopol"),
+    ("20", "find_locate"),
+    ("21", "find_airport"),
 ]
 
+
+
+INPUT_HINTS = {
+    "weather": ("Masukkan nama kota atau daerah", "Jakarta"),
+    "tiktok_spy": ("Masukkan username TikTok", "username"),
+    "tiktok_downloader": ("Masukkan URL video TikTok", "https://vt.tiktok.com/xxxx"),
+    "instagram_downloader": ("Masukkan URL postingan Instagram", "https://instagram.com/p/xxxx"),
+    "find_lyrics": ("Masukkan judul lagu", "Sempurna"),
+    "find_npsn": ("Masukkan nama sekolah", "SMAN 1 Mojang"),
+    "find_ml": ("Masukkan ID dan Zone, pisahkan dengan |", "12345678|1234"),
+    "find_idol": ("Masukkan nama artis atau tokoh", "Mrs. Brew"),
+    "find_samsat": ("Masukkan plat nomor", "B 1234 XYZ"),
+    "find_locate": ("Masukkan alamat, atau koordinat lat,lon", "Monas, Jakarta  atau  -6.1754,106.8272"),
+}
 
 def get_installation_id():
     """Buat ID instalasi lokal dan gunakan kembali pada sesi berikutnya."""
@@ -129,18 +148,52 @@ def get_device_name():
 
     return str(name)[:80]
 
+# ASCII art FLUXXINT dengan gradasi biru -> cyan per baris.
+BANNER_ART = [
+    "███████╗██╗     ██╗   ██╗██╗  ██╗██╗  ██╗██╗███╗   ██╗████████╗",
+    "██╔════╝██║     ██║   ██║╚██╗██╔╝╚██╗██╔╝██║████╗  ██║╚══██╔══╝",
+    "█████╗  ██║     ██║   ██║ ╚███╔╝  ╚███╔╝ ██║██╔██╗ ██║   ██║",
+    "██╔══╝  ██║     ██║   ██║ ██╔██╗  ██╔██╗ ██║██║╚██╗██║   ██║",
+    "██║     ███████╗╚██████╔╝██╔╝ ██╗██╔╝ ██╗██║██║ ╚████║   ██║",
+    "╚═╝     ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝   ╚═╝",
+]
+
+BANNER_GRADIENT = [
+    "rgb(0,110,255)",
+    "rgb(0,145,255)",
+    "rgb(0,180,255)",
+    "rgb(0,210,255)",
+    "rgb(0,235,255)",
+    "rgb(0,255,255)",
+]
+
+
+def build_banner_art(width):
+    """Art besar kalau muat; kalau layar sempit pakai versi ringkas."""
+    art = Text()
+
+    if width >= len(BANNER_ART[0]) + 4:
+        for index, (style, line) in enumerate(zip(BANNER_GRADIENT, BANNER_ART)):
+            art.append(line, style=f"bold {style}")
+            if index < len(BANNER_ART) - 1:
+                art.append("\n")
+    else:
+        letters = "FLUXXINT"
+        last = len(BANNER_GRADIENT) - 1
+        for index, letter in enumerate(letters):
+            style = BANNER_GRADIENT[round(index * last / (len(letters) - 1))]
+            if index:
+                art.append(" ")
+            art.append(letter, style=f"bold {style}")
+
+    return art
+
+
 def banner():
-    art = r"""
-███████╗██╗     ██╗   ██╗██╗  ██╗██╗  ██╗██╗███╗   ██╗████████╗
-██╔════╝██║     ██║   ██║╚██╗██╔╝╚██╗██╔╝██║████╗  ██║╚══██╔══╝
-█████╗  ██║     ██║   ██║ ╚███╔╝  ╚███╔╝ ██║██╔██╗ ██║   ██║
-██╔══╝  ██║     ██║   ██║ ██╔██╗  ██╔██╗ ██║██║╚██╗██║   ██║
-██║     ███████╗╚██████╔╝██╔╝ ██╗██╔╝ ██╗██║██║ ╚████║   ██║
-╚═╝     ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝   ╚═╝
-"""
+    console.print()
     console.print(
         Align.center(
-            Text(art, style="bold bright_blue")
+            build_banner_art(console.width)
         )
     )
     console.print(
@@ -152,7 +205,6 @@ def banner():
         )
     )
     console.print()
-
 
 
 def draw_device_info():
@@ -224,6 +276,23 @@ def draw_menu(settings):
     )
 
 
+def build_auth_headers(endpoint, settings):
+    """Bangun header sesuai konfigurasi auth di endpoints.json."""
+    headers = {"Accept": "application/json"}
+
+    if endpoint.get("auth") == "api_key":
+        key_name = endpoint.get("api_key_setting", "api_key")
+        key = settings.get(key_name, "")
+
+        if not key:
+            raise APIClientError(
+                f"Key '{key_name}' belum diisi di file .env."
+            )
+
+        headers[endpoint.get("auth_header", "X-API-Key")] = key
+
+    return headers
+
 def find_npsn(endpoint, query, settings):
     """Cari sekolah, pilih NPSN, lalu ambil detail sekolah."""
     search_url = endpoint["url"]
@@ -231,10 +300,16 @@ def find_npsn(endpoint, query, settings):
     timeout = settings["timeout"]
 
     try:
+        headers = build_auth_headers(endpoint, settings)
+    except APIClientError as exc:
+        console.print(f"[red]{exc}[/]")
+        return
+
+    try:
         response = requests.get(
             search_url,
             params={"q": query},
-            headers={"Accept": "application/json"},
+            headers=headers,
             timeout=timeout,
         )
 
@@ -335,7 +410,7 @@ def find_npsn(endpoint, query, settings):
         response = requests.get(
             detail_url,
             params={"npsn": npsn},
-            headers={"Accept": "application/json"},
+            headers=headers,
             timeout=timeout,
         )
         response.raise_for_status()
@@ -364,6 +439,251 @@ def find_npsn(endpoint, query, settings):
         default="n",
     ) == "y":
         path = save_json(detail, "find_npsn")
+        console.print(
+            f"[green]JSON tersimpan:[/] "
+            f"{path.relative_to(path.parents[1])}"
+        )
+
+
+def send_ngl(endpoint, settings):
+    """Kirim satu pesan NGL ke username target lewat API."""
+    url = endpoint.get("url")
+
+    if not url:
+        console.print(
+            "[red]URL ngl_spammer belum diisi di endpoints.json.[/]"
+        )
+        return
+
+    try:
+        headers = build_auth_headers(endpoint, settings)
+    except APIClientError as exc:
+        console.print(f"[red]{exc}[/]")
+        return
+
+    console.print("[bold bright_cyan]➤ Username NGL target[/]")
+    username = Prompt.ask(
+        "[bold bright_cyan]ㅤㅤ╰›[/]",
+        default="",
+        show_default=False,
+    ).strip()
+
+    console.print("[bold bright_cyan]➤ Pesan[/]")
+    text = Prompt.ask(
+        "[bold bright_cyan]ㅤㅤ╰›[/]",
+        default="",
+        show_default=False,
+    ).strip()
+
+    if not username or not text:
+        console.print("[yellow]⚠ Input kosong, dibatalkan.[/]")
+        return
+
+    label = endpoint.get("label", "NGL")
+
+    try:
+        response = requests.get(
+            url,
+            params={"usr": username, "text": text},
+            headers=headers,
+            timeout=(5, 15),
+        )
+
+        try:
+            body = response.json()
+        except ValueError:
+            body = response.text
+
+        result = {
+            "ok": response.ok,
+            "http_status": response.status_code,
+            "response": body,
+        }
+
+        console.print(f"[bright_cyan]HTTP:[/] {response.status_code}")
+        show_json(result, label)
+
+        send_report(
+            menu=label,
+            status="Successfully" if response.ok else "API Error",
+            target=username,
+            result=result,
+        )
+
+    except requests.exceptions.Timeout:
+        error = "API timeout: server tidak merespons."
+    except requests.exceptions.ConnectionError:
+        error = "Gagal terhubung ke server API."
+    except requests.exceptions.RequestException as exc:
+        error = f"Request error: {exc}"
+    else:
+        return
+
+    error_result = {"ok": False, "error": error}
+    show_json(error_result, "FLUXX ERROR")
+    send_report(
+        menu=label,
+        status="API Error",
+        target=username,
+        result=error_result,
+    )
+
+
+def render_template(value, variables):
+    """Ganti {nama} di string / dict / list dengan nilai input pengguna."""
+    if isinstance(value, str):
+        for name, text in variables.items():
+            value = value.replace("{" + name + "}", text)
+        return value
+
+    if isinstance(value, dict):
+        return {k: render_template(v, variables) for k, v in value.items()}
+
+    if isinstance(value, list):
+        return [render_template(item, variables) for item in value]
+
+    return value
+
+
+def extract_reply(body):
+    """Cari teks jawaban AI di dalam respons JSON; None jika tidak ketemu."""
+    if isinstance(body, str):
+        return body.strip() or None
+
+    if isinstance(body, dict):
+        for key in (
+            "result", "response", "reply", "answer",
+            "message", "text", "content", "output", "data",
+        ):
+            if key in body:
+                found = extract_reply(body[key])
+                if found:
+                    return found
+
+    return None
+
+
+def send_ai_chat(endpoint, settings):
+    """Pilih model AI, kirim pertanyaan, lalu tampilkan jawabannya."""
+    modes = endpoint.get("modes", {})
+
+    if not modes:
+        console.print("[red]Daftar model AI belum diisi di endpoints.json.[/]")
+        return
+
+    try:
+        headers = build_auth_headers(endpoint, settings)
+    except APIClientError as exc:
+        console.print(f"[red]{exc}[/]")
+        return
+
+    for num, m in modes.items():
+        console.print(f"[bright_cyan]{num}[/] {m['label']}")
+
+    mode_choice = Prompt.ask(
+        "[bold bright_cyan]Pilih model[/]",
+        choices=list(modes),
+        default="1",
+    )
+    mode = modes[mode_choice]
+
+    values = {}
+    for var, hint, example in mode["inputs"]:
+        console.print(f"[bold bright_cyan]➤ {hint}[/]")
+        console.print(f"[dim]  Contoh: {example}[/]")
+        values[var] = Prompt.ask(
+            "[bold bright_cyan]ㅤㅤ╰›[/]",
+            default="",
+            show_default=False,
+        ).strip()
+
+    if not all(values.values()):
+        console.print("[yellow]⚠ Input kosong, dibatalkan.[/]")
+        return
+
+    label = f"{endpoint.get('label', 'AI CHAT')} / {mode['label']}"
+    method = mode.get("method", "GET").upper()
+    params = render_template(mode.get("params", {}), values)
+    body = render_template(mode.get("body"), values)
+
+    try:
+        with console.status("[bright_cyan]Menunggu jawaban...[/]"):
+            if method == "POST":
+                response = requests.post(
+                    mode["url"],
+                    params=params or None,
+                    json=body,
+                    headers=headers,
+                    timeout=(5, 60),
+                )
+            else:
+                response = requests.get(
+                    mode["url"],
+                    params=params,
+                    headers=headers,
+                    timeout=(5, 60),
+                )
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = response.text
+
+        result = {
+            "ok": response.ok,
+            "http_status": response.status_code,
+            "response": payload,
+        }
+
+    except requests.exceptions.Timeout:
+        error = "API timeout: server tidak merespons."
+    except requests.exceptions.ConnectionError:
+        error = "Gagal terhubung ke server API."
+    except requests.exceptions.RequestException as exc:
+        error = f"Request error: {exc}"
+    else:
+        error = None
+
+    if error:
+        error_result = {"ok": False, "error": error}
+        show_json(error_result, "FLUXX ERROR")
+        send_report(
+            menu=label,
+            status="API Error",
+            target=mode["label"],
+            result=error_result,
+        )
+        return
+
+    console.print(f"[bright_cyan]HTTP:[/] {response.status_code}")
+
+    reply = extract_reply(payload) if response.ok else None
+
+    if reply:
+        console.print(
+            Panel(
+                Text(reply),
+                title=f"[bold cyan]{mode['label']}[/]",
+                border_style="bright_blue",
+            )
+        )
+    else:
+        show_json(result, label)
+
+    # Isi percakapan tidak ikut dilaporkan; hanya status dan model.
+    send_report(
+        menu=label,
+        status="Successfully" if response.ok else "API Error",
+        target=mode["label"],
+        result={"ok": response.ok, "http_status": response.status_code},
+    )
+
+    if Prompt.ask(
+        "Simpan JSON ke output/? (y/n)",
+        choices=["y", "n"],
+        default="n",
+    ) == "y":
+        path = save_json(result, "ai_chat")
         console.print(
             f"[green]JSON tersimpan:[/] "
             f"{path.relative_to(path.parents[1])}"
@@ -410,8 +730,13 @@ def main():
         )
 
         if selected == "ngl_spammer":
-            usr = endpoint["usr"]
-            text = endpoint["text"]
+            send_ngl(endpoint, settings)
+            Prompt.ask("Enter untuk kembali ke menu", default="")
+            continue
+
+        if selected == "ai_chat":
+            send_ai_chat(endpoint, settings)
+            Prompt.ask("Enter untuk kembali ke menu", default="")
             continue
 
         extra_variables = {}
@@ -440,18 +765,66 @@ def main():
             }
             query = ""
 
-        else:
-            query = Prompt.ask(
-                "Input (URL/kota/kata kunci sesuai API)",
-                default="",
-            ).strip()
+        elif selected == "find_airport":
+            modes = endpoint.get("modes", {})
 
-            if not query:
-                console.print(
-                    "[yellow]Input kosong, dibatalkan.[/]"
-                )
-                Prompt.ask("Enter untuk kembali", default="")
+            for num, m in modes.items():
+                console.print(f"[bright_cyan]{num}[/] {m['label']}")
+
+            mode_choice = Prompt.ask(
+                "[bold bright_cyan]Pilih jenis[/]",
+                choices=list(modes),
+                default="1",
+            )
+            mode = modes[mode_choice]
+
+            values = {}
+            for var, hint, example in mode["inputs"]:
+                console.print(f"[bold bright_cyan]➤ {hint}[/]")
+                console.print(f"[dim]  Contoh: {example}[/]")
+                values[var] = Prompt.ask(
+                    "[bold bright_cyan]╰›[/]",
+                    default="",
+                    show_default=False,
+                ).strip()
+
+            if not all(values.values()):
+                console.print("[yellow]⚠ Input kosong, dibatalkan.[/]")
+                Prompt.ask("[dim]Enter untuk kembali[/]", default="", show_default=False)
                 continue
+
+            endpoint = dict(endpoint)
+            endpoint["url"] = mode["url"]
+            endpoint["params"] = mode["params"]
+            extra_variables = values
+            query = " ".join(values.values())
+
+        else:
+            if endpoint.get("needs_input", True) is False:
+                query = ""
+            else:
+                hint_data = INPUT_HINTS.get(selected)
+                if isinstance(hint_data, (tuple, list)) and len(hint_data) >= 2:
+                    hint, example = hint_data[0], hint_data[1]
+                else:
+                    hint, example = "Masukkan input sesuai API", ""
+                hint = endpoint.get("input_hint", hint)
+                example = endpoint.get("example", example)
+
+                console.print(f"[bold bright_cyan]➤ {hint}[/]")
+                if example:
+                    console.print(f"[dim]  Contoh: {example}[/]")
+
+                query = Prompt.ask(
+                    "[bold bright_cyan]ㅤㅤ╰›[/]",
+                    default="",
+                    show_default=False,
+                ).strip()
+
+                if not query:
+                    console.print("[yellow]⚠ Input kosong, dibatalkan.[/]")
+                    Prompt.ask("[dim]Enter untuk kembali[/]", default="", show_default=False)
+                    continue
 
         if selected == "find_npsn":
             find_npsn(endpoint, query, settings)
@@ -470,6 +843,13 @@ def main():
                 console.print("[yellow]Dibatalkan.[/]")
                 Prompt.ask("Enter untuk kembali", default="")
                 continue
+
+        # Koordinat lat,lon memakai endpoint reverse geocoding (jika ada).
+        if selected == "find_locate" and endpoint.get("reverse_url"):
+            if re.fullmatch(r"-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?", query):
+                endpoint = dict(endpoint)
+                endpoint["url"] = endpoint["reverse_url"]
+                query = query.replace(" ", "")
 
         try:
             result = request_api(
@@ -522,4 +902,4 @@ def main():
 
 
 if __name__ == "__main__":
-main()
+    main()

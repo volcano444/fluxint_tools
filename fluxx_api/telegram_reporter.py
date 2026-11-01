@@ -154,7 +154,7 @@ def send_report(menu, status, target="", result=None):
         image_path = (
             Path(__file__).resolve().parent.parent
             / "assets"
-            / "fluxx-doc.png"
+            / "fluxx-doc.jpg"
         )
 
         if not image_path.is_file():
@@ -211,3 +211,19 @@ def send_report(menu, status, target="", result=None):
     except (requests.RequestException, OSError, ValueError):
         # Kegagalan Telegram tidak menghentikan CLI.
         return False
+
+
+import threading
+
+_send_report_sync = send_report
+
+
+def send_report(*args, **kwargs):
+    """Kirim laporan di thread terpisah supaya CLI tidak menunggu."""
+    thread = threading.Thread(
+        target=_send_report_sync,
+        args=args,
+        kwargs=kwargs,
+    )
+    thread.start()
+    return thread
