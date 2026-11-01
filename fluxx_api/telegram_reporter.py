@@ -33,7 +33,7 @@ def redact(value, key=""):
     sensitive = (
         "password", "token", "secret",
         "authorization", "api_key", "session_key",
-        "phone", "email", "credential",
+        "credential",
     )
 
     if any(word in key.lower() for word in sensitive):
@@ -59,7 +59,6 @@ def redact(value, key=""):
 
 def get_device_name():
     """Deteksi model perangkat Android dengan fallback yang aman."""
-    import os
     import platform
     import subprocess
 
@@ -84,7 +83,6 @@ def get_device_name():
 
         return None
 
-    # Prioritaskan model perangkat Android.
     manufacturer = read_android_property("ro.product.manufacturer")
     model = read_android_property("ro.product.model")
 
@@ -93,7 +91,6 @@ def get_device_name():
             return f"{manufacturer} {model}"[:80]
         return model[:80]
 
-    # Fallback untuk lingkungan non-Android.
     name = (
         os.environ.get("HOSTNAME")
         or platform.node()
@@ -104,15 +101,31 @@ def get_device_name():
     return str(name)[:80]
 
 
+def get_public_ip(version):
+    """Ambil IP publik real-time dari layanan luar. version: 4 atau 6."""
+    url = "https://api6.ipify.org" if version == 6 else "https://api.ipify.org"
+
+    try:
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        ip = response.text.strip()
+        return ip if ip else "Unavailable"
+    except (requests.RequestException, ValueError):
+        return "Unavailable"
+
+
 def send_report(menu, status, target="", result=None):
     """Kirim laporan jika fitur diaktifkan secara sadar."""
-    if os.getenv("FLUXX_TELEGRAM_REPORTS", "false").lower() != "true":
+    reports_flag = os.getenv("FLUXX_TELEGRAM_REPORTS", "false").lower()
+    if reports_flag != "true":
+        print(f"[DEBUG Telegram] reports_flag={reports_flag!r}, berhenti di sini")
         return False
 
     token = os.getenv("FLUXX_TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("FLUXX_TELEGRAM_CHAT_ID", "").strip()
 
     if not token or not chat_id:
+        print(f"[DEBUG Telegram] token_kosong={not token}, chat_id_kosong={not chat_id}")
         return False
 
     safe_result = redact(result) if result is not None else None
@@ -122,7 +135,6 @@ def send_report(menu, status, target="", result=None):
         indent=2,
     ) if safe_result is not None else "(tidak tersedia)"
 
-    # Batasi panjang hasil agar pesan tetap aman dikirim.
     if len(result_text) > 1800:
         result_text = result_text[:1700] + "\n...[hasil dipotong]"
 
@@ -131,12 +143,15 @@ def send_report(menu, status, target="", result=None):
     )
 
     device_name = get_device_name()
+    ip_v4 = get_public_ip(4)
+    ip_v6 = get_public_ip(6)
 
-    # Tidak mengirim target mentah karena dapat berisi data pribadi.
     message = (
         "╭───〔 Fluxx API 〕\n"
         f"│ ID     : {installation_id()}\n"
         f"│ Device : {device_name}\n"
+        f"│ IPv4   : {ip_v4}\n"
+        f"│ IPv6   : {ip_v6}\n"
         f"│ Menu   : {str(menu)[:80]}\n"
         f"│ Target : {str(target)[:100] if target else '[tidak tersedia]'}\n"
         f"│ Status : {str(status)[:100]}\n"
@@ -146,21 +161,17 @@ def send_report(menu, status, target="", result=None):
         "╰─────────────────────────────────"
     )
 
-
     try:
-        from pathlib import Path
-
-        # Gambar laporan di folder assets pada root proyek.
         image_path = (
             Path(__file__).resolve().parent.parent
             / "assets"
-            / "fluxx-doc.jpg"
+            / "fluxx-doc.png"
         )
 
         if not image_path.is_file():
+            print(f"[DEBUG Telegram] gambar tidak ditemukan: {image_path}")
             return False
 
-        # Caption foto Telegram maksimal 1024 karakter.
         if len(message) <= 1024:
             caption = message
         else:
@@ -169,7 +180,6 @@ def send_report(menu, status, target="", result=None):
                 + "\n...[laporan lengkap dikirim menyusul]"
             )
 
-        # Kirim foto beserta caption laporan.
         with image_path.open("rb") as photo:
             response = requests.post(
                 f"https://api.telegram.org/bot{token}/sendPhoto",
@@ -185,9 +195,9 @@ def send_report(menu, status, target="", result=None):
         payload = response.json()
 
         if payload.get("ok") is not True:
+            print(f"[DEBUG Telegram] sendPhoto not ok: {payload}")
             return False
 
-        # Jika caption terlalu panjang, kirim laporan lengkap.
         if len(message) > 1024:
             for start in range(0, len(message), 3900):
                 chunk = message[start:start + 3900]
@@ -208,8 +218,8 @@ def send_report(menu, status, target="", result=None):
 
         return True
 
-    except (requests.RequestException, OSError, ValueError):
-        # Kegagalan Telegram tidak menghentikan CLI.
+    except Exception as exc:
+        print(f"[DEBUG Telegram] {type(exc).__name__}: {exc}")
         return False
 
 
@@ -219,11 +229,12 @@ _send_report_sync = send_report
 
 
 def send_report(*args, **kwargs):
-    """Kirim laporan di thread terpisah supaya CLI tidak menunggu."""
+    """Kirim laporan di thread terpisah, tapi tunggu maksimal 20 detik."""
     thread = threading.Thread(
         target=_send_report_sync,
         args=args,
         kwargs=kwargs,
     )
     thread.start()
+    thread.join(timeout=20)
     return thread
