@@ -24,7 +24,7 @@ git clone https://github.com/volcano444/fluxint_tools.git
 
 4. Masuk ke folder
 
-cd fluxint_tools
+cd fluxx-api
 
 5. Install library
 
