@@ -33,3 +33,6 @@ config/endpoints.json
 *.backup.*
 config/__pycache__/
 >
+
+# Local configuration - never upload
+/config/

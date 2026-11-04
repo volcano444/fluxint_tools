@@ -1,5 +1,4 @@
 import json
-import os
 import re
 from urllib.parse import urlparse
 
@@ -86,28 +85,39 @@ def request_api(endpoint, query, settings, extra_variables=None):
     if auth_mode == "api_key":
         key_name = endpoint.get("api_key_setting", "api_key")
         key = settings.get(key_name, "")
+
         if not key:
-            raise APIClientError("FLUXX_API_KEY belum diisi pada file .env.")
+            raise APIClientError(
+                f"API Key '{key_name}' tidak ditemukan dalam remote config."
+            )
+
         headers[str(endpoint.get("auth_header", "X-API-Key"))] = key
 
     elif auth_mode == "bearer":
         token = settings["api_token"]
         if not token:
-            raise APIClientError("FLUXX_API_TOKEN belum diisi pada file .env.")
+            raise APIClientError(
+                "FLUXX_API_TOKEN belum diisi dalam konfigurasi."
+            )
         headers["Authorization"] = f"Bearer {token}"
 
     elif auth_mode == "session":
         key = settings["session_key"]
         if not key:
-            raise APIClientError("FLUXX_SESSION_KEY belum diisi pada file .env.")
+            raise APIClientError(
+                "FLUXX_SESSION_KEY belum diisi dalam konfigurasi."
+            )
         headers[str(endpoint.get("auth_header", "X-Session-Key"))] = key
 
     elif auth_mode == "api_key_param":
         key_name = endpoint.get("api_key_setting", "api_key")
-        # Ambil dari settings; kalau belum dipetakan config.py, baca dari .env.
-        key = settings.get(key_name, "") or os.getenv(key_name.upper(), "")
+        key = settings.get(key_name, "")
+
         if not key:
-            raise APIClientError(f"Key '{key_name}' belum diisi pada file .env.")
+            raise APIClientError(
+                f"API Key '{key_name}' tidak ditemukan dalam konfigurasi."
+            )
+
         params[str(endpoint.get("auth_param", "access_key"))] = key
         secret = key
 
@@ -116,6 +126,7 @@ def request_api(endpoint, query, settings, extra_variables=None):
             "Mode auth tidak dikenal. Gunakan none, api_key, "
             "api_key_param, bearer, atau session."
         )
+
 
     try:
         with requests.Session() as session:

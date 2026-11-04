@@ -32,32 +32,45 @@ MENU = [
     ("8", "instagram_downloader"),
     ("9", "play_tera"),
     ("10", "find_lyrics"),
-    ("11", "ngl_spammer"),
-    ("12", "find_npsn"),
-    ("13", "get_contact"),
-    ("14", "find_ff"),
-    ("15", "find_ml"),
-    ("16", "find_roblox"),
-    ("17", "react_saluran"),
-    ("18", "find_idol"),
-    ("19", "find_nopol"),
-    ("20", "find_locate"),
-    ("21", "find_airport"),
+    ("11", "spotify_dl"),
+    ("12", "ngl_spammer"),
+    ("13", "find_npsn"),
+    ("14", "get_contact"),
+    ("15", "find_ff"),
+    ("16", "find_ml"),
+    ("17", "find_roblox"),
+    ("18", "react_saluran"),
+    ("19", "tempmail_create"),
+    ("20", "find_nopol"),
+    ("21", "find_locate"),
+    ("22", "find_airport"),
 ]
 
 
 
 INPUT_HINTS = {
+    "ai_chat": ("Masukkan pertanyaan untuk AI", "Jelaskan apa itu Python?"),
     "weather": ("Masukkan nama kota atau daerah", "Jakarta"),
+    "earthquake_bmkg": ("Tidak memerlukan input", "Jakarta"),
+    "nik_detail": ("Masukkan NIK", "320XXXXXXXXXXXXX"),
+    "telegram_spy": ("Masukkan username Telegram", "@username"),
     "tiktok_spy": ("Masukkan username TikTok", "username"),
     "tiktok_downloader": ("Masukkan URL video TikTok", "https://vt.tiktok.com/xxxx"),
     "instagram_downloader": ("Masukkan URL postingan Instagram", "https://instagram.com/p/xxxx"),
+    "play_tera": ("Input Url Terabox", "https://terabox.com/xxxx"),
     "find_lyrics": ("Masukkan judul lagu", "Sempurna"),
+    "spotify_dl": ("Masukkan URL Spotify atau judul lagu", "https://open.spotify.com/track/xxxx"),
+    "ngl_spammer": ("Fitur tidak menyediakan input umum", "-"),
     "find_npsn": ("Masukkan nama sekolah", "SMAN 1 Mojang"),
+    "get_contact": ("Masukkan nomor telepon", "081234567890"),
+    "find_ff": ("Masukkan UID Free Fire", "123456789"),
     "find_ml": ("Masukkan ID dan Zone, pisahkan dengan |", "12345678|1234"),
-    "find_idol": ("Masukkan nama artis atau tokoh", "Mrs. Brew"),
-    "find_samsat": ("Masukkan plat nomor", "B 1234 XYZ"),
-    "find_locate": ("Masukkan alamat, atau koordinat lat,lon", "Monas, Jakarta  atau  -6.1754,106.8272"),
+    "find_roblox": ("Masukkan username Roblox", "BLTOREO"),
+    "react_saluran": ("Masukkan URL saluran WhatsApp", "https://whatsapp.com/channel/0029VbDsPB4C1FuJcFjbgV1t"),
+    "tempmail_create": ("Membuat email sementara", ""),
+    "find_nopol": ("Masukkan plat nomor kendaraan", "B 1234 XYZ"),
+    "find_locate": ("Masukkan alamat atau koordinat", "Monas, Jakarta / -6.1754,106.8272"),
+    "find_airport": ("Masukkan nama bandara atau kode IATA", "Juanda atau SUB"),
 }
 
 def get_installation_id():
@@ -286,7 +299,7 @@ def build_auth_headers(endpoint, settings):
 
         if not key:
             raise APIClientError(
-                f"Key '{key_name}' belum diisi di file .env."
+                f"Key '{key_name}' belum tersedia di GitHub remote config."
             )
 
         headers[endpoint.get("auth_header", "X-API-Key")] = key
@@ -444,6 +457,139 @@ def find_npsn(endpoint, query, settings):
             f"{path.relative_to(path.parents[1])}"
         )
 
+def find_spotify(endpoint, settings):
+    """Cari lagu Spotify, pilih hasil, lalu ambil link download."""
+    base_url = endpoint["url"]
+    timeout = settings["timeout"]
+
+    try:
+        headers = build_auth_headers(endpoint, settings)
+    except APIClientError as exc:
+        console.print(f"[red]{exc}[/]")
+        return
+
+    console.print("[bold bright_cyan]➤ Judul lagu[/]")
+    console.print("[dim]  Contoh: shape of you[/]")
+    query = Prompt.ask(
+        "[bold bright_cyan]ㅤㅤ╰›[/]",
+        default="",
+        show_default=False,
+    ).strip()
+
+    if not query:
+        console.print("[yellow]⚠ Input kosong, dibatalkan.[/]")
+        return
+
+    try:
+        response = requests.get(
+            base_url,
+            params={"action": "search", "q": query},
+            headers=headers,
+            timeout=timeout,
+        )
+
+        if response.status_code in (401, 403):
+            console.print("[red]API key ditolak. Periksa spotify_api_key pada remote config.[/]")
+            return
+
+        response.raise_for_status()
+        payload = response.json()
+
+    except (requests.RequestException, ValueError) as exc:
+        console.print(f"[red]Pencarian gagal:[/] {exc}")
+        send_report(
+            menu="Spotify Downloader",
+            status="Search Error",
+            target=query,
+            result={"ok": False, "error": "Pencarian gagal."},
+        )
+        return
+
+    tracks = payload
+    if isinstance(payload, dict):
+        for key in ("data", "results", "result", "tracks"):
+            if key in payload:
+                tracks = payload[key]
+                break
+
+    if not isinstance(tracks, list) or not tracks:
+        console.print("[yellow]Lagu tidak ditemukan.[/]")
+        show_json(payload, "SEARCH RESPONSE")
+        return
+
+    valid_tracks = [
+        t for t in tracks
+        if isinstance(t, dict) and (t.get("url") or t.get("link") or t.get("track_url"))
+    ]
+
+    if not valid_tracks:
+        console.print("[yellow]Hasil API tidak berisi URL track yang dikenali.[/]")
+        show_json(payload, "SEARCH RESPONSE")
+        return
+
+    table = Table(title="HASIL PENCARIAN SPOTIFY", box=box.ROUNDED, show_lines=True)
+    table.add_column("No.", justify="right")
+    table.add_column("Judul")
+    table.add_column("Artis")
+
+    for index, t in enumerate(valid_tracks, start=1):
+        title = t.get("title") or t.get("name") or "Tidak diketahui"
+        artist = t.get("artist") or t.get("artists") or "-"
+        table.add_row(str(index), str(title), str(artist))
+
+    console.print(table)
+
+    choice = Prompt.ask(
+        "Pilih nomor lagu",
+        choices=[str(i) for i in range(1, len(valid_tracks) + 1)],
+    )
+
+    selected_track = valid_tracks[int(choice) - 1]
+    track_url = (
+        selected_track.get("url")
+        or selected_track.get("link")
+        or selected_track.get("track_url")
+    )
+    title = selected_track.get("title") or selected_track.get("name") or query
+
+    try:
+        response = requests.get(
+            base_url,
+            params={"action": "download", "url": track_url},
+            headers=headers,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        detail = response.json()
+
+    except (requests.RequestException, ValueError) as exc:
+        console.print(f"[red]Gagal mengambil link download:[/] {exc}")
+        send_report(
+            menu="Spotify Downloader",
+            status="Download Error",
+            target=title,
+            result={"ok": False, "error": str(exc)},
+        )
+        return
+
+    show_json(detail, f"DOWNLOAD — {title}")
+
+    send_report(
+        menu="Spotify Downloader",
+        status="Successfully",
+        target=title,
+        result={"ok": True, "http_status": response.status_code, "detail": detail},
+    )
+
+    if Prompt.ask(
+        "Simpan JSON ke output/?",
+        choices=["y", "n"],
+        default="n",
+    ) == "y":
+        path = save_json(detail, "spotify_dl")
+        console.print(
+            f"[green]JSON tersimpan:[/] {path.relative_to(path.parents[1])}"
+        )
 
 def send_ngl(endpoint, settings):
     """Kirim satu pesan NGL ke username target lewat API."""
@@ -689,6 +835,180 @@ def send_ai_chat(endpoint, settings):
             f"{path.relative_to(path.parents[1])}"
         )
 
+def extract_temp_mail_data(payload):
+    """Cari alamat email dan token dari respons API secara rekursif."""
+    result = {
+        "email": None,
+        "token": None,
+    }
+
+    email_keys = {"email", "mail", "address", "email_address"}
+    token_keys = {"token", "mail_token", "access_token"}
+
+    def scan(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                normalized_key = str(key).lower()
+
+                if isinstance(item, (str, int)):
+                    if normalized_key in email_keys and not result["email"]:
+                        result["email"] = str(item)
+
+                    elif normalized_key in token_keys and not result["token"]:
+                        result["token"] = str(item)
+
+                if isinstance(item, (dict, list)):
+                    scan(item)
+
+        elif isinstance(value, list):
+            for item in value:
+                scan(item)
+
+    scan(payload)
+    return result
+
+
+def run_temp_mail(settings):
+    """Buat email sementara dan sediakan pilihan untuk memeriksa inbox."""
+    endpoints = settings["endpoints"]
+    create_endpoint = endpoints.get("tempmail_create", {})
+    inbox_endpoint = endpoints.get("tempmail_inbox", {})
+    timeout = settings.get("timeout", 20)
+    api_key = settings.get("tempmail_api_key", "").strip()
+
+    if not api_key:
+        console.print(
+            "[red]TEMPMAIL API Key tidak ditemukan di remote config GitHub.[/]"
+        )
+        return
+
+    if not create_endpoint.get("enabled") or not create_endpoint.get("url"):
+        console.print("[red]Endpoint Temp Mail Create belum tersedia.[/]")
+        return
+
+    if not inbox_endpoint.get("enabled") or not inbox_endpoint.get("url"):
+        console.print("[red]Endpoint Temp Mail Inbox belum tersedia.[/]")
+        return
+
+    create_headers = {
+        "Accept": "application/json",
+        str(create_endpoint.get("auth_header", "X-API-Key")): api_key,
+    }
+
+    inbox_headers = {
+        "Accept": "application/json",
+        str(inbox_endpoint.get("auth_header", "X-API-Key")): api_key,
+    }
+
+    console.print("[bold bright_cyan]➤ Membuat email sementara...[/]")
+
+    try:
+        response = requests.get(
+            create_endpoint["url"],
+            headers=create_headers,
+            timeout=timeout,
+            allow_redirects=False,
+        )
+
+        if 300 <= response.status_code < 400:
+            console.print("[red]Redirect ditolak untuk keamanan.[/]")
+            return
+
+        response.raise_for_status()
+
+        try:
+            payload = response.json()
+        except ValueError:
+            console.print("[red]Respons API bukan JSON yang valid.[/]")
+            console.print(response.text[:2000])
+            return
+
+    except requests.exceptions.Timeout:
+        console.print("[red]API timeout: server tidak merespons.[/]")
+        return
+    except requests.exceptions.ConnectionError:
+        console.print("[red]Gagal terhubung ke server API.[/]")
+        return
+    except requests.exceptions.RequestException as exc:
+        console.print(f"[red]Gagal membuat email: {exc}[/]")
+        return
+
+    mail_data = extract_temp_mail_data(payload)
+    email = mail_data["email"]
+    token = mail_data["token"]
+
+    console.print(f"[bright_cyan]HTTP:[/] {response.status_code}")
+    show_json(payload, "TEMP MAIL — CREATE")
+
+    if not email:
+        console.print(
+            "[yellow]Alamat email tidak ditemukan otomatis dalam respons API.[/]"
+        )
+        email = Prompt.ask("Masukkan alamat email dari respons API").strip()
+
+    if not token:
+        console.print(
+            "[yellow]Token tidak ditemukan otomatis dalam respons API.[/]"
+        )
+        token = Prompt.ask("Masukkan token dari respons API").strip()
+
+    if not email or not token:
+        console.print("[red]Email dan token wajib tersedia untuk cek inbox.[/]")
+        return
+
+    console.print()
+    console.print("[bold bright_cyan]TEMP MAIL ACCOUNT[/]")
+    console.print(f"[cyan]Email:[/] {email}")
+    console.print(f"[cyan]Token:[/] {token}")
+
+    check = Prompt.ask(
+        "Periksa inbox sekarang?",
+        choices=["y", "n"],
+        default="y",
+    )
+
+    if check != "y":
+        return
+
+    try:
+        with console.status("[bright_cyan]Memeriksa inbox...[/]"):
+            response = requests.get(
+                inbox_endpoint["url"],
+                params={
+                    "email": email,
+                    "token": token,
+                },
+                headers=inbox_headers,
+                timeout=timeout,
+                allow_redirects=False,
+            )
+
+        if 300 <= response.status_code < 400:
+            console.print("[red]Redirect ditolak untuk keamanan.[/]")
+            return
+
+        try:
+            inbox_payload = response.json()
+        except ValueError:
+            inbox_payload = {"response": response.text[:5000]}
+
+        result = {
+            "ok": response.ok,
+            "http_status": response.status_code,
+            "email": email,
+            "inbox": inbox_payload,
+        }
+
+        console.print(f"[bright_cyan]HTTP:[/] {response.status_code}")
+        show_json(result, "TEMP MAIL — INBOX")
+
+    except requests.exceptions.Timeout:
+        console.print("[red]Inbox timeout: server tidak merespons.[/]")
+    except requests.exceptions.ConnectionError:
+        console.print("[red]Gagal terhubung ke server inbox.[/]")
+    except requests.exceptions.RequestException as exc:
+        console.print(f"[red]Gagal memeriksa inbox: {exc}[/]")
+
 
 def main():
     try:
@@ -731,6 +1051,16 @@ def main():
 
         if selected == "ngl_spammer":
             send_ngl(endpoint, settings)
+            Prompt.ask("Enter untuk kembali ke menu", default="")
+            continue
+
+        if selected == "tempmail_create":
+            run_temp_mail(settings)
+            Prompt.ask("Enter untuk kembali ke menu", default="")
+            continue
+
+        if selected == "spotify_dl":
+            find_spotify(endpoint, settings)
             Prompt.ask("Enter untuk kembali ke menu", default="")
             continue
 
@@ -826,10 +1156,6 @@ def main():
                     Prompt.ask("[dim]Enter untuk kembali[/]", default="", show_default=False)
                     continue
 
-        if selected == "find_npsn":
-            find_npsn(endpoint, query, settings)
-            Prompt.ask("Enter untuk kembali ke menu", default="")
-            continue
 
         # Data NIK bersifat sensitif; konfirmasi izin tetap diwajibkan.
         if selected == "nik_detail":
@@ -843,6 +1169,12 @@ def main():
                 console.print("[yellow]Dibatalkan.[/]")
                 Prompt.ask("Enter untuk kembali", default="")
                 continue
+
+
+        if selected == "spotify_dl":
+            find_spotify(endpoint, settings)
+            Prompt.ask("Enter untuk kembali ke menu", default="")
+            continue
 
         # Koordinat lat,lon memakai endpoint reverse geocoding (jika ada).
         if selected == "find_locate" and endpoint.get("reverse_url"):
