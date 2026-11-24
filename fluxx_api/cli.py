@@ -36,16 +36,17 @@ MENU = [
     ("12", "ngl_spammer"),
     ("13", "find_npsn"),
     ("14", "get_contact"),
-    ("15", "find_ff"),
-    ("16", "find_ml"),
-    ("17", "find_roblox"),
-    ("18", "react_saluran"),
-    ("19", "tempmail_create"),
-    ("20", "find_nopol"),
-    ("21", "find_locate"),
-    ("22", "find_airport"),
+    ("15", "number_lookup"),
+    ("16", "find_ff"),
+    ("17", "find_ml"),
+    ("18", "find_roblox"),
+    ("19", "react_saluran"),
+    ("20", "tempmail_create"),
+    ("21", "find_nopol"),
+    ("22", "find_locate"),
+    ("23", "find_airport"),
+    ("24", "pairing_wa")
 ]
-
 
 
 INPUT_HINTS = {
@@ -71,6 +72,7 @@ INPUT_HINTS = {
     "find_nopol": ("Masukkan plat nomor kendaraan", "B 1234 XYZ"),
     "find_locate": ("Masukkan alamat atau koordinat", "Monas, Jakarta / -6.1754,106.8272"),
     "find_airport": ("Masukkan nama bandara atau kode IATA", "Juanda atau SUB"),
+    "number_lookup": ("Masukkan Nomor tujuan", "08123456789")
 }
 
 def get_installation_id():
