@@ -163,16 +163,6 @@ def get_device_name():
 
     return str(name)[:80]
 
-def get_header():
-    grid = Table.grid(expand=True)
-    grid.add_column(justify='left')
-    grid.add_column(justify='right')
-    date_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    grid.add_row(
-        '[bold cyan]Coded By Fluxxy[/bold cyan] [bold white]v1.0[/bold white]',
-        f'[dim white]⏱  {date_now}[/dim white]'
-    )
-    return Panel(grid, style='bold blue', border_style='blue', box=box.HEAVY)
 
 # ASCII art FLUXXINT dengan gradasi biru -> cyan per baris.
 BANNER_ART = [
